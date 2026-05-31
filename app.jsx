@@ -971,4 +971,8 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+// รอข้อมูลสดจาก Google Sheet ให้พร้อมก่อน (ถ้ามี) แล้วค่อย mount
+// ถ้าไม่มี sheet-loader หรือโหลดไม่ได้ → mount ทันทีด้วยข้อมูล data.js
+(window.__dataReady || Promise.resolve()).then(function () {
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+});
