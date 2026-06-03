@@ -98,6 +98,8 @@
         groupFriendly: get(r, "groupFriendly"),
         source: get(r, "source"),
         sourceUrl: get(r, "sourceUrl"),
+        homepage: get(r, "homepage"),
+        homepageType: get(r, "homepageType"),
         notes: get(r, "notes"),
         signature: signature,
         emoji: get(r, "emoji") || "🍽️",

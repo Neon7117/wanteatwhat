@@ -44,6 +44,20 @@ function isDirectSource(r) {
   return !!(r.sourceUrl && !isRoundupUrl(r.sourceUrl));
 }
 
+// ปุ่ม "หน้าร้านต้นทาง" — เฟซบุ๊กร้านก่อน, ไม่มีค่อยใช้เว็บไซต์ร้าน
+// (มาจากคอลัมน์ homepage/homepageType ในชีท CLEAN) ถ้าไม่มีเลย ค่อย fallback เป็น sourceUrl เดิม
+const FB_RE = /facebook\.com|fb\.com|fb\.me|m\.facebook/i;
+function getHomepage(r) {
+  if (r.homepage) {
+    const isFb = r.homepageType === "facebook" || FB_RE.test(r.homepage);
+    return { url: r.homepage, label: isFb ? "Facebook ร้าน" : "เว็บไซต์ร้าน", icon: isFb ? "📘" : "🌐" };
+  }
+  if (isDirectSource(r)) {
+    return { url: r.sourceUrl, label: "หน้าร้านต้นทาง", icon: "🔗" };
+  }
+  return null;
+}
+
 // ============== Cuisine / Format / Price helpers ==============
 const CUISINE_CATEGORIES = [
   { id: "all", label: "ทั้งหมด", emoji: "🍽️", match: () => true },
@@ -54,7 +68,6 @@ const CUISINE_CATEGORIES = [
   { id: "italian", label: "อิตาเลียน", emoji: "🍝", match: c => /อิตาเลียน|พิซซ่า|พาสต้า|Italian|Pizza/i.test(c) },
   { id: "shabu", label: "ชาบู / สุกี้", emoji: "🍲", match: c => /ชาบู|สุกี้|หม้อไฟ|Shabu/i.test(c) },
   { id: "bbq", label: "ปิ้งย่าง / Wagyu", emoji: "🥩", match: c => /ปิ้งย่าง|Wagyu|วากิว|เนื้อย่าง|Yakiniku|BBQ|โกเบ|Kobe|สเต๊ก|Steak/i.test(c) },
-  { id: "buffet", label: "บุฟเฟ่ต์", emoji: "🍱", match: c => /บุฟเฟ่|Buffet/i.test(c) },
   { id: "international", label: "นานาชาติ / ฟิวชั่น", emoji: "🌍", match: c => /นานาชาติ|ฟิวชั่น|เลบานอน|กรีก|เยอรมัน|เวียดนาม|อินเดีย|Brunch|คาเฟ่|Fine Dining|Rooftop|Lebanese|Greek/i.test(c) }
 ];
 
@@ -70,6 +83,11 @@ function isBuffet(restaurant) {
   return /บุฟเฟ่|Buffet/i.test(restaurant.cuisine + " " + restaurant.name);
 }
 
+// export ให้ gacha.jsx (ไฟล์ babel แยก) เรียกใช้ได้ผ่าน window
+window.getCuisineCategoryId = getCuisineCategoryId;
+window.isBuffet = isBuffet;
+window.CUISINE_CATEGORIES = CUISINE_CATEGORIES;
+
 const PRICE_LEVELS = [
   { id: "all", label: "ทุกราคา", emoji: "💰" },
   { id: "1", label: "< ฿200", emoji: "💵", desc: "< ฿200/คน" },
@@ -79,8 +97,24 @@ const PRICE_LEVELS = [
   { id: "5", label: "> ฿1,200", emoji: "💶", desc: "> ฿1,200/คน" }
 ];
 
+// อ่านจำนวนเงินจริง (บาท/คน) — ใช้ขอบบนของช่วงราคา เช่น "฿400-600" → 600
+function priceBaht(restaurant) {
+  const s = String(restaurant.pricePerPerson || restaurant.priceRange || "");
+  const nums = (s.match(/\d[\d,]*/g) || [])
+    .map(n => parseInt(n.replace(/,/g, ""), 10))
+    .filter(n => !isNaN(n));
+  return nums.length ? Math.max(...nums) : null;
+}
+
+// แบ่งช่องราคาตามเลขบาทจริง (ให้ตรงกับ label ของ PRICE_LEVELS)
 function getPriceLevel(restaurant) {
-  return String(restaurant.priceRange.length);
+  const b = priceBaht(restaurant);
+  if (b == null) return "0";   // ไม่รู้ราคา → ไม่เข้าช่องเจาะจงใด
+  if (b < 200) return "1";     // < ฿200
+  if (b <= 400) return "2";    // ฿200-400
+  if (b <= 700) return "3";    // ฿400-700
+  if (b <= 1200) return "4";   // ฿700-1,200
+  return "5";                  // > ฿1,200
 }
 
 // ============== Utility components ==============
@@ -226,9 +260,9 @@ function RestaurantModal({ restaurant, onClose }) {
               <a href={r.gmapUrl} target="_blank" rel="noopener" className="evidence-link">
                 📍 ดูร้านนี้บน Google Maps
               </a>
-              {isDirectSource(r) && (
-                <a href={r.sourceUrl} target="_blank" rel="noopener" className="evidence-link">
-                  🔗 หน้าร้านต้นทาง
+              {getHomepage(r) && (
+                <a href={getHomepage(r).url} target="_blank" rel="noopener" className="evidence-link">
+                  {getHomepage(r).icon} {getHomepage(r).label}
                 </a>
               )}
             </div>
@@ -514,7 +548,7 @@ function Top10Section({ onOpen }) {
     list.sort((a, b) => {
       if (sortKey === "total") return b.scores.total - a.scores.total;
       if (sortKey === "rating") return b.rating - a.rating;
-      if (sortKey === "price") return a.priceRange.length - b.priceRange.length;
+      if (sortKey === "price") return (priceBaht(a) || 0) - (priceBaht(b) || 0);
       if (sortKey === "reviews") return b.reviewCount - a.reviewCount;
       return 0;
     });
@@ -565,7 +599,7 @@ function Top10Section({ onOpen }) {
       <div className="filter-block">
         <div className="filter-label">🍱 ประเภทอาหาร</div>
         <div className="tab-bar small-tabs">
-          {CUISINE_CATEGORIES.map(c => (
+          {CUISINE_CATEGORIES.filter(c => c.id === "all" || countByCuisine[c.id] > 0).map(c => (
             <button key={c.id} className={"tab" + (cuisineFilter === c.id ? " active" : "")} onClick={() => setCuisineFilter(c.id)}>
               <span>{c.emoji}</span> {c.label} <span className="tab-count">{countByCuisine[c.id]}</span>
             </button>
@@ -757,9 +791,9 @@ function Top3Section({ onOpen, layout }) {
                 <a className="btn btn-ghost btn-small" href={r.gmapUrl} target="_blank" rel="noopener">
                   📍 ดูร้านนี้
                 </a>
-                {isDirectSource(r) && (
-                  <a className="btn btn-ghost btn-small" href={r.sourceUrl} target="_blank" rel="noopener">
-                    🔗 หน้าร้าน
+                {getHomepage(r) && (
+                  <a className="btn btn-ghost btn-small" href={getHomepage(r).url} target="_blank" rel="noopener">
+                    {getHomepage(r).icon} {getHomepage(r).label === "Facebook ร้าน" ? "Facebook" : getHomepage(r).label === "เว็บไซต์ร้าน" ? "เว็บไซต์" : "หน้าร้าน"}
                   </a>
                 )}
               </div>
@@ -774,6 +808,82 @@ function Top3Section({ onOpen, layout }) {
 // ============== Comparison Section ==============
 function ComparisonSection() {
   const top3 = TOP_RANKED.slice(0, 3);
+  const [ai, setAi] = useState(null);      // { [id]: "บทวิเคราะห์" }
+  const [aiState, setAiState] = useState("idle"); // idle | loading | done | error
+
+  // 🤖 บทวิเคราะห์: อ่านจากไฟล์ที่ "อบ" ไว้ก่อน (window.AI_ANALYSIS) → ทำงานบน Vercel ได้ทันที
+  // ถ้าร้านใน Top 3 ไม่มีในไฟล์ (ข้อมูลเปลี่ยนหลัง refresh) ค่อยลองเรียก AI สด (เฉพาะ preview)
+  useEffect(() => {
+    if (!top3.length || !top3[0]) return;
+
+    const baked = window.AI_ANALYSIS || {};
+    const haveBaked = top3.filter(r => baked[r.id]);
+    if (haveBaked.length === top3.length) {
+      const obj = {};
+      top3.forEach(r => { obj[r.id] = baked[r.id]; });
+      setAi(obj); setAiState("done");
+      return; // ครบทุกร้าน — ไม่ต้องเรียก AI
+    }
+
+    const cacheKey = "nh_ai_v3_" + top3.map(r => r.id + ":" + r.scores.total).join("|");
+    try {
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) { setAi(JSON.parse(cached)); setAiState("done"); return; }
+    } catch (e) {}
+
+    if (!(window.claude && window.claude.complete)) {
+      // ไม่มี AI สด (เช่นบน Vercel) — ใช้เท่าที่อบไว้ ที่เหลือ fallback สูตร
+      if (haveBaked.length) {
+        const obj = {};
+        haveBaked.forEach(r => { obj[r.id] = baked[r.id]; });
+        setAi(obj);
+      }
+      setAiState("done");
+      return;
+    }
+
+    setAiState("loading");
+    let alive = true;
+
+    const parseObj = (txt) => {
+      const m = String(txt).match(/\{[\s\S]*\}/);
+      return JSON.parse(m ? m[0] : txt);
+    };
+
+    const askOne = (r, rank) => {
+      const info = {
+        name: r.name, cuisine: r.cuisine,
+        area: AREAS.find(a => a.id === r.area)?.label || r.area,
+        rating: r.rating, reviews: r.reviewCount, price: r.pricePerPerson,
+        travel: r.travel, group: r.groupFriendly, total: r.scores.total, notes: r.notes
+      };
+      const prompt =
+        "เพื่อนคุณกำลังเลือกร้านเลี้ยงทีมออฟฟิศ 8–12 คน ช่วยแนะนำร้านนี้ (อันดับ " + rank + ") ให้ฟัง:\n" +
+        JSON.stringify(info) +
+        "\n\nเขียนเป็นภาษาพูดแบบคนไทยคุยกันจริงๆ อ่านปุ๊บเข้าใจปั๊บ เป็นกันเอง ไม่เป็นทางการ " +
+        "ห้ามยัดตัวเลขเยอะๆ ให้แปลงตัวเลขเป็นความรู้สึก (เช่น '4.9 ดาว รีวิวสองหมื่นกว่า' = 'คนชอบกันเยอะมาก การันตีความอร่อย'):\n" +
+        "- analysis: 1–2 ประโยคสั้นๆ บอกว่าร้านนี้เหมาะกับทีมแบบไหน เด่นเรื่องอะไร และมีอะไรต้องคิดก่อนไป พูดให้เหมือนเพื่อนแนะนำ\n" +
+        "- pros: ข้อดี 2 ข้อ พูดสั้นๆ เป็นธรรมชาติ ข้อละไม่เกิน 10 คำ (เช่น 'อร่อยจนรีวิวแน่น คนการันตีเยอะ')\n" +
+        "- cons: ข้อต้องระวัง 1 ข้อ พูดตรงๆ เข้าใจง่าย ไม่เกิน 10 คำ\n" +
+        "ใช้คำง่ายๆ ไม่ต้องมีศัพท์เทคนิค ตอบ JSON อย่างเดียว: {\"analysis\":\"...\",\"pros\":[\"...\",\"...\"],\"cons\":[\"...\"]}";
+      return window.claude.complete(prompt).then(parseObj).then(o => ({ id: r.id, o })).catch(() => ({ id: r.id, o: null }));
+    };
+
+    Promise.all(top3.map((r, i) => askOne(r, i + 1))).then(results => {
+      if (!alive) return;
+      const obj = {};
+      let any = false;
+      results.forEach(({ id, o }) => { if (o) { obj[id] = o; any = true; } });
+      if (any) {
+        setAi(obj); setAiState("done");
+        try { localStorage.setItem(cacheKey, JSON.stringify(obj)); } catch (e) {}
+      } else {
+        setAiState("error");
+      }
+    }).catch(() => { if (alive) setAiState("error"); });
+
+    return () => { alive = false; };
+  }, []);
 
   const buildProsCons = (r) => {
     const pros = [];
@@ -787,7 +897,6 @@ function ComparisonSection() {
     if (r.scores.travel >= 14) pros.push("ติด BTS/MRT เดินทางสะดวกมาก");
     else if (r.scores.travel <= 11) cons.push("ต้องเดินไกลจากสถานี อาจไม่สะดวกตอนฝนตก");
     if (r.scores.uniqueness >= 9) pros.push("ประสบการณ์พิเศษ มี signature dish โดดเด่น");
-    if (r.scores.completeness >= 14) pros.push("มีข้อมูลครบทุก field — ตรวจย้อนกลับได้");
     if (pros.length === 0) pros.push("ตัวเลือกที่ปลอดภัย สมดุลในทุกด้าน");
     if (cons.length === 0) cons.push("ช่วงวันหยุดคนเยอะ ควรจองล่วงหน้าให้แน่ใจ");
     return { pros, cons };
@@ -797,11 +906,13 @@ function ComparisonSection() {
     <section className="section" id="comparison" data-screen-label="Comparison">
       <div className="section-tag">⚖️ Comparison</div>
       <h2 className="section-title">เปรียบเทียบจุดเด่น / ข้อควรระวัง</h2>
-      <p className="section-subtitle">ทุกร้านมี trade-off — ตัวเลือกไหนเหมาะกับทีมคุณที่สุด ขึ้นกับสิ่งที่ทีมให้ความสำคัญ</p>
 
       <div className="compare-grid">
         {top3.map(r => {
-          const { pros, cons } = buildProsCons(r);
+          const fallback = buildProsCons(r);
+          const aiR = (aiState === "done" && ai && ai[r.id]) ? ai[r.id] : null;
+          const pros = (aiR && Array.isArray(aiR.pros) && aiR.pros.length) ? aiR.pros : fallback.pros;
+          const cons = (aiR && Array.isArray(aiR.cons) && aiR.cons.length) ? aiR.cons : fallback.cons;
           return (
             <div className="compare-card" key={r.id}>
               <div className="compare-head">
@@ -812,7 +923,31 @@ function ComparisonSection() {
                 </div>
               </div>
 
-              <div className="compare-label">✨ จุดเด่น (Pros)</div>
+              <div className="ai-analysis">
+                <div className="ai-analysis-head">
+                  <span className="ai-badge">🤖 AI วิเคราะห์</span>
+                </div>
+                {aiState === "loading" && (
+                  <p className="ai-analysis-text loading">
+                    <span className="ai-dot"></span><span className="ai-dot"></span><span className="ai-dot"></span>
+                    กำลังให้ AI วิเคราะห์ร้านนี้…
+                  </p>
+                )}
+                {aiState === "done" && aiR && aiR.analysis && (
+                  <p className="ai-analysis-text">{aiR.analysis}</p>
+                )}
+                {(aiState === "error" || (aiState === "done" && (!aiR || !aiR.analysis))) && (
+                  <p className="ai-analysis-text muted">
+                    {r.name} ได้ {r.scores.total}/100 — โดดเด่นเรื่อง{
+                      r.scores.rating >= 22 ? "รีวิวที่น่าเชื่อถือ" :
+                      r.scores.group >= 19 ? "การรองรับกลุ่มใหญ่" :
+                      r.scores.price >= 14 ? "ความคุ้มราคา" : "ความสมดุลในทุกด้าน"
+                    } เหมาะกับทีมที่ให้น้ำหนักด้านนี้
+                  </p>
+                )}
+              </div>
+
+              <div className="compare-label">✨ จุดเด่น</div>
               <div className="pros-cons-list">
                 {pros.map((p, i) => (
                   <div className="pros-cons-item" key={i}>
@@ -822,7 +957,7 @@ function ComparisonSection() {
                 ))}
               </div>
 
-              <div className="compare-label">⚠️ ข้อควรระวัง (Cons)</div>
+              <div className="compare-label">⚠️ ข้อควรระวัง</div>
               <div className="pros-cons-list">
                 {cons.map((c, i) => (
                   <div className="pros-cons-item" key={i}>
@@ -873,12 +1008,9 @@ function ReflectionSection() {
 // ============== Top Nav ==============
 function Nav({ onToggleTweaks, onToggleDark, isDark }) {
   const links = [
-    { href: "#pipeline", label: "Pipeline" },
-    { href: "#storage", label: "ข้อมูล" },
     { href: "#scoring", label: "Scoring" },
     { href: "#top10", label: "Top 10" },
-    { href: "#top3", label: "Top 3" },
-    { href: "#automation", label: "Automation" }
+    { href: "#top3", label: "Top 3" }
   ];
   return (
     <nav className="nav" data-screen-label="Nav">
@@ -950,14 +1082,10 @@ function App() {
       />
       <main>
         <Hero examineeName={examineeName} areas={AREAS} />
-        <PipelineSection />
-        <StorageSection />
         <ScoringSection />
         <Top10Section onOpen={setModal} />
         <Top3Section onOpen={setModal} layout={tweaks.cardLayout} />
         <ComparisonSection />
-        <AutomationSection />
-        <ReflectionSection />
       </main>
       <footer>
         <p>🍜 ร้านอาหาร น้าไม่หาร · AI Food Assistant Workflow · จัดทำโดย {examineeName}</p>
@@ -965,6 +1093,7 @@ function App() {
           ข้อมูลร้านจริงจาก Wongnai · Google Maps · Tripadvisor · Grab · Time Out · Ryoii · อัปเดต May 2026
         </p>
       </footer>
+      {window.GachaMachine && <window.GachaMachine onOpen={setModal} />}
       {tweaksOpen && <TweaksPanel tweaks={tweaks} setTweak={setTweak} onClose={handleCloseTweaks} />}
       {modal && <RestaurantModal restaurant={modal} onClose={() => setModal(null)} />}
     </>
