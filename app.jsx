@@ -1009,8 +1009,8 @@ function ReflectionSection() {
 function Nav({ onToggleTweaks, onToggleDark, isDark }) {
   const links = [
     { href: "#scoring", label: "Scoring" },
-    { href: "#top10", label: "Top 10" },
-    { href: "#top3", label: "Top 3" }
+    { href: "#top3", label: "Top 3" },
+    { href: "#top10", label: "Top 10" }
   ];
   return (
     <nav className="nav" data-screen-label="Nav">
@@ -1083,8 +1083,8 @@ function App() {
       <main>
         <Hero examineeName={examineeName} areas={AREAS} />
         <ScoringSection />
-        <Top10Section onOpen={setModal} />
         <Top3Section onOpen={setModal} layout={tweaks.cardLayout} />
+        <Top10Section onOpen={setModal} />
         <ComparisonSection />
       </main>
       <footer>
