@@ -1084,8 +1084,8 @@ function App() {
         <Hero examineeName={examineeName} areas={AREAS} />
         <ScoringSection />
         <Top3Section onOpen={setModal} layout={tweaks.cardLayout} />
-        <Top10Section onOpen={setModal} />
         <ComparisonSection />
+        <Top10Section onOpen={setModal} />
       </main>
       <footer>
         <p>🍜 ร้านอาหาร น้าไม่หาร · AI Food Assistant Workflow · จัดทำโดย {examineeName}</p>
